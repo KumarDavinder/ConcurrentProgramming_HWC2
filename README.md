@@ -1,2 +1,2 @@
-# Concurrent Programming HomeworkC2
+# Concurrent Programming Homework C
 Read HWC2_THREAD.pdf
