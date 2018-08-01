@@ -1,0 +1,61 @@
+NOME e COGNOME: DAVINDER KUMAR
+MATRICOLA: 460825
+
+Descrizione della soluzione proposta per HWC2:
+
+TEST
+La verifica del corretto funzionamento della soluzione proposta è stata fatta eseguondo test per le singole componenti (accepter, provider, dispatcher e reader).
+Per ogni componente sono state create diverse suite per il test: 3 suite per accepter, 7 per dispatcher, 5 per provider e 4 per reader.
+Con le diverse suite ho cercato di coprire i diversi stati in cui un componente si può trovare e quindi di testare il suo comportamento a seguito di una sollecitazione.
+Per ogni utilizzo di pthread_exit si ritorna un valore diverso per distinguere i vari thread, e con riferimento allo stesso thread per capire il motivo per il quale è stata fatta la pthread_exit.
+
+ASPETTI IMPLEMENTATIVI
+/===============================================ACCEPTER===========================================================/
+Il compito dell'accepter è leggere i messaggi dal accepter_buffer e creare i reader finchè non viene letto il messaggio poison_pill.
+Il nome del reader creato è il content del messaggio letto e una volta effettuata questa operazione il messaggio viene distrutto.
+Nell'accepter.h viene dichiarata una struct che contiene la lista dei readers, tale lista viene protetta da pthread_mutex_t.
+Inoltre è stato implementato un metodo per la destroy della lista dei readers che serve ad uccidere i reader ancora in gioco.
+Quando si creano più thread insieme (senza aspettare che nessuno termini) può infatti succedere:
+ - l'accepter non ha ancora creato i readers
+ - il dispacher consuma tutti i messaggi dal buffer_provider, ma senza inviarli ai readers poichè ancora non ci sono
+ - alla fine tutti i thread terminano ma ci sono ancora i readers che non sono stati distrutti
+
+Si invia la poison_pill a tutti i readers ancora presenti e la distruzione della lista dei readers viene fatta solo dopo che i readers si siano suicidati e abbiano aggiornato la lista.
+Se invece i readers sono stati creati può succedere che il dispatcher termini ancora prima che i readers si siano suicidati e quindi è necessario che il dispatcher termini solo dopo la terminazione dei readers.
+Per questi due aspetti, ovvero per aspettare la terminazione dei readers, la gestione in termini di implementazione è la seguente: si invia la posison_pill a tutti i readers e si fa un while sulla size della lista dei readers, finchè tutti i readers non sono terminati si rimane nel ciclo while.
+
+int k =  size(list_readers_current->readers);
+while(k >= 0){
+	if(size(list_readers_current->readers) == 0){
+		...
+		k = -1;
+	}
+}
+/=================================================PROVIDER=========================================================/
+Si può scelgiere il numero di messaggi da creare e ogni messaggio viene creato con il campo "content" diverso.
+ex: 3 messaggi -> "messaggio0", "messaggio1", "messaggio2" 
+
+/===============================================DISPATCHER===========================================================/
+Il dispatcher consuma i messaggi dal buffer_provider e gli invia a tutti i reader. 
+L'invio avviene in modalità non bloccante (put_non_bloccante) poichè il dispatcher non dipende dallo stato dei vari readers.
+Il suo compito è infatti solamente quello di inoltrare i messaggi presenti nel buffer_provider verso i readers.
+
+/==============================================READER============================================================/
+Alla creazione di un reader vengono inizializzati "int flag_delete" e "int delay":
+1) flag_delete -> Viene inizializzato a 1. 
+				  Quando il dispatcher vuole eliminare un reader perchè lo ritiene lento ("reader_buffer" pieno) aggiorna questo flag a 0.
+				  Il thread reader legge questo flag e se il suo valore è 0 si suicida aggiornando la lista dei readers.
+				  Si è scelto di fare cosi per velocizzare l'uccisione dei thread reader.
+				  Altrimenti si poteva inviare un messaggio poison_pill (con una put_bloccante) ma questo avrebbe elimanto il thread reader solo dopo la lettura di tale messaggio (quindi prima si devono consumare tutti i messaggi presenti nel buffer poichè il buffer è pieno e alla fine si arriverà a leggere la poison_pill).
+2) delay = rand() % 3; -> per simulare il ritardo di un reader (solamente qui si è fatto uso di una sleep e in 
+									altri contesti dove ho avuto la tentazione di usare una sleep ho risolto il problema diversamente, come ad esempio nel codice mostrato sopra).
+
+/==================================================MAIN========================================================/
+Nel main.c il thread dispatcher viene lanciato dopo che i thread accepter e provider hanno terminato.
+In gioco rimangono quindi il dispatcher e i reader creati dall'accepter.
+Il dispatcher consuma i messaggi dal provider_buffer gli inoltra ai readers presenti nella lista e termina dopo la terminazione dei readers.
+Infine la lista dei readers sarà vuota e vengono deallocate le varie strutture utilizzate.
+
+/===========================ERRORI========================/
+Sul mio computer tutti i test hanno esito positivo.
+1 ora prima della consegna ho provato ad eseguire il codice su un altro computer: tutti i test vanno a buon fine tranne il dispatcher che va in segmentation fault.
